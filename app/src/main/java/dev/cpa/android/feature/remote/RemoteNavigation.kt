@@ -1,5 +1,8 @@
 package dev.cpa.android.feature.remote
 
+import dev.cpa.android.core.push.TaskNotificationTarget
+import dev.cpa.android.data.repository.ConnectionPhase
+import kotlinx.coroutines.flow.first
 import android.net.Uri
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -31,7 +34,8 @@ fun remoteSubAgentPath(connectionId: String, parentSessionId: String, agentId: S
 private const val HOME = "remoteHome"
 
 @Composable
-fun RemoteNavigation(remote: RemoteDesktopRepository) {
+fun RemoteNavigation(remote: RemoteDesktopRepository, notification: TaskNotificationTarget? = null,
+    onConsumed: () -> Unit = {}, resolveNotification: (String) -> String? = { null }) {
     val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val homePreferences = remember(context) { dev.cpa.android.core.storage.AndroidHomePreferences(context) }
     val nav = rememberNavController()
@@ -41,7 +45,25 @@ fun RemoteNavigation(remote: RemoteDesktopRepository) {
         val owner = remember(entry) { runCatching { nav.getBackStackEntry(HOME) }.getOrDefault(entry) }
         return viewModel(owner, factory = homeFactory)
     }
-    fun openThread(connection: String, session: String) = nav.navigate(remoteThreadPath(connection, session)) { launchSingleTop = true }
+    fun openThread(connection: String, session: String) {
+        val current = nav.currentBackStackEntry
+        if (current?.destination?.route == "remote/{connectionId}/{sessionId}" &&
+            current.arguments?.getString("connectionId") == connection && current.arguments?.getString("sessionId") == session) return
+        // The same route pattern with new arguments needs a fresh SavedStateHandle and thread ViewModel.
+        nav.navigate(remoteThreadPath(connection, session))
+    }
+    LaunchedEffect(notification) {
+        val target = notification ?: return@LaunchedEffect
+        val local = resolveNotification(target.route)
+        if (local != null && remote.prepareNotificationTarget(local)) {
+            val connection = remote.connections.first { rows ->
+                val row = rows.find { it.id == local }
+                row == null || !row.enabled || row.phase !in setOf(ConnectionPhase.Disconnected, ConnectionPhase.Connecting)
+            }.find { it.id == local }
+            if (connection?.enabled == true && resolveNotification(target.route) == local) openThread(local, target.session)
+        }
+        onConsumed()
+    }
     fun openNewThread() = nav.navigate("newThread") { launchSingleTop = true }
     Box(Modifier.fillMaxSize().background(Cpa.colors.background)) {
         NavHost(navController = nav, startDestination = HOME,

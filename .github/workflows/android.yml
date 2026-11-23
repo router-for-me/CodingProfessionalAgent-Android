@@ -34,6 +34,14 @@ jobs:
           packages: platform-tools
       - run: sdkmanager 'platforms;android-37.1' 'build-tools;36.0.0'
       - run: ./scripts/check-repository.sh && ./scripts/verify.sh
+      - name: Configure optional Firebase Android client
+        if: github.ref_type == 'tag'
+        env:
+          FIREBASE_ANDROID_CONFIG: ${{ secrets.FIREBASE_ANDROID_CONFIG }}
+        run: |
+          if [[ -n "$FIREBASE_ANDROID_CONFIG" ]]; then
+            printf '%s' "$FIREBASE_ANDROID_CONFIG" > app/google-services.json
+          fi
       - name: Build versioned release APK
         if: github.ref_type == 'tag'
         run: ./gradlew :app:assembleRelease -PcpaSplitArmApks=true -PcpaVersionName="${GITHUB_REF_NAME#v}" -PcpaVersionCode="$((GITHUB_RUN_NUMBER + 1))"

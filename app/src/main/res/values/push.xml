@@ -1,0 +1,19 @@
+<resources>
+    <string name="push_section">Notifications</string>
+    <string name="push_title">Task notifications</string>
+    <string name="push_hint">Get notified when a task finishes or the agent needs an answer.</string>
+    <string name="push_unconfigured">This build has no Firebase configuration.</string>
+    <string name="push_no_gms">Google Play services are unavailable on this device.</string>
+    <string name="push_permission">Allow notifications to receive task updates.</string>
+    <string name="push_channel_blocked">Enable the task notification channel in system settings.</string>
+    <string name="push_system_settings">System notification settings</string>
+    <string name="push_firebase_failed">Could not register with Firebase. Check network connectivity.</string>
+    <string name="push_retry">Retry registration</string>
+    <string name="push_waiting_connection">Waiting for desktop</string>
+    <string name="push_registering">Registering…</string>
+    <string name="push_registered">Registered</string>
+    <string name="push_retrying">Retrying registration</string>
+    <string name="push_update_desktop">Desktop update required</string>
+    <string name="cpa_push_ask_body">The agent needs your answer.</string>
+    <string name="cpa_push_completed_body">Your task has finished.</string>
+</resources>

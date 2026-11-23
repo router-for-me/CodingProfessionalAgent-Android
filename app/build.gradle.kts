@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Firebase configuration is optional for local builds and forks.
+if (file("google-services.json").isFile) apply(plugin = "com.google.gms.google-services")
+
 android {
     namespace = "dev.cpa.android"
     compileSdk { version = release(37) { minorApiLevel = 1 } }
@@ -35,6 +38,7 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
+    implementation("com.google.firebase:firebase-messaging:26.0.2")
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)

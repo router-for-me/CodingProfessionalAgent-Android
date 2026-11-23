@@ -15,8 +15,9 @@ CPA 的原生 Android 客户端。用手机连接 CPA 桌面端，查看项目�
 - 管理项目和会话，发送、排队、引导、停止或恢复任务，也可以分叉会话。
 - 编辑消息，添加附件、引用技能，处理 Ask 交互并查看子会话。
 - 查看 Git 差异和文件内容（只读）。
+- 配置 Firebase 的版本可在后台提醒任务完成和待回答的 Ask，点击可进入对应桌面会话。使用条件与打包方式见[任务通知](docs/task-notifications.md)。
 
-暂不支持远程推送通知；尚未确认真实模型能否识别通过 Android 发送的图片附件。详见[功能矩阵](docs/migration/current-feature-matrix.md)。
+尚未确认真实模型能否识别通过 Android 发送的图片附件。详见[功能矩阵](docs/migration/current-feature-matrix.md)。
 
 ## 开发
 

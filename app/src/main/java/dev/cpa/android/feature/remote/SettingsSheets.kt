@@ -95,6 +95,7 @@ internal fun SettingsSheet(vm: RemoteHomeViewModel, connections: List<Connection
                     Text(stringResource(R.string.ui_settings_add_connection), style = cpaText(17), color = c.blue)
                 }
             }
+            TaskPushSettings(connections)
             FormSectionHeader(stringResource(R.string.ui_settings_composer), prominent = true)
             FormGroup {
                 FormToggleRow(stringResource(R.string.ui_settings_collapse_keyboard_after_send), collapse, vm::setCollapseKeyboard)

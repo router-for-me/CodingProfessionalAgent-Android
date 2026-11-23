@@ -1,0 +1,19 @@
+<resources>
+    <string name="push_section">通知</string>
+    <string name="push_title">任务通知</string>
+    <string name="push_hint">任务完成或 Agent 等待回答时接收通知。</string>
+    <string name="push_unconfigured">此版本未配置 Firebase。</string>
+    <string name="push_no_gms">此设备无法使用 Google Play 服务。</string>
+    <string name="push_permission">允许发送通知后即可接收任务提醒。</string>
+    <string name="push_channel_blocked">请在系统设置中开启任务通知渠道。</string>
+    <string name="push_system_settings">系统通知设置</string>
+    <string name="push_firebase_failed">无法向 Firebase 注册，请检查网络连接。</string>
+    <string name="push_retry">重新注册</string>
+    <string name="push_waiting_connection">等待桌面连接</string>
+    <string name="push_registering">正在注册…</string>
+    <string name="push_registered">已注册</string>
+    <string name="push_retrying">正在重试注册</string>
+    <string name="push_update_desktop">请更新桌面端</string>
+    <string name="cpa_push_ask_body">Agent 正在等待你的回答。</string>
+    <string name="cpa_push_completed_body">任务已完成。</string>
+</resources>
