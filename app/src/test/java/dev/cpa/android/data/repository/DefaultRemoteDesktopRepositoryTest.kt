@@ -3,6 +3,7 @@ package dev.cpa.android.data.repository
 import dev.cpa.android.core.network.*
 import dev.cpa.android.core.network.tunnel.*
 import dev.cpa.android.core.storage.*
+import dev.cpa.android.core.push.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import kotlinx.serialization.json.*
@@ -36,6 +37,7 @@ class DefaultRemoteDesktopRepositoryTest {
                     calls.add(call)
                     val method = call["method"]!!.jsonPrimitive.content
                     if (method !in held) reply(call, when (method) {
+                        "notification:registerClient", "notification:unregisterClient" -> """{"ok":true}"""
                         "session:getActiveRuns", "session:listSessions" -> "[]"
                         "kvstore:get" -> when (call["args"]!!.jsonArray[0].jsonPrimitive.content) {
                             "cachedModels" -> """[{"id":"model","label":"Test model","reasoningLevels":[]}]"""
@@ -59,6 +61,56 @@ class DefaultRemoteDesktopRepositoryTest {
         override fun close() { closed = true }
     }
     private fun connection(id: String = "c", password: String = "secret") = StoredConnection(id, "Desktop", "https://desktop.example/", password, false)
+
+    @Test fun pushDetachesBeforeSocketClosureAndRecoversFromFailedDisable() = runTest {
+        val vault = Vault(listOf(connection()))
+        val journal = DesktopPushSubscriptionsTest.Journal()
+        val push = DesktopPushSubscriptions(journal)
+        push.target.value = PushTarget.Registered("sEnSiTive")
+        val wires = mutableListOf<Wire>()
+        val repo = DefaultRemoteDesktopRepository(vault, backgroundScope, push = push) { Wire().also(wires::add) }
+        runCurrent(); repo.onForeground(); runCurrent()
+        assertTrue(repo.prepareNotificationTarget("c"))
+        assertEquals(1, wires.single().count("notification:registerClient"))
+        vault.fail = true
+        assertTrue(runCatching { repo.disconnect("c") }.isFailure)
+        runCurrent()
+        assertTrue(repo.connections.value.single().enabled)
+        assertEquals(1, wires.first().count("notification:unregisterClient"))
+        assertEquals(1, wires.last().count("notification:registerClient"))
+        vault.fail = false
+        repo.disconnect("c")
+        assertEquals(1, wires.last().count("notification:unregisterClient"))
+        assertFalse(repo.prepareNotificationTarget("c"))
+        assertTrue(journal.ids.isEmpty())
+        repo.connect("c"); runCurrent()
+        assertEquals(1, wires.last().count("notification:registerClient"))
+        repo.onBackground(); runCurrent()
+        repo.removeConnection("c")
+        assertTrue(journal.ids.isEmpty())
+        assertFalse(repo.prepareNotificationTarget("c"))
+    }
+
+    @Test fun offlineRemovalRequiresDurablePushRevocation() = runTest {
+        val vault = Vault(listOf(connection()))
+        val memory = DesktopPushSubscriptionsTest.Journal()
+        memory.authorize("c")
+        val commit = CompletableDeferred<Unit>()
+        val journal = object : PushJournal by memory {
+            override suspend fun persistRetirement(connection: String) {
+                memory.retire(connection)
+                commit.await()
+            }
+        }
+        val repo = DefaultRemoteDesktopRepository(vault, backgroundScope, push = DesktopPushSubscriptions(journal))
+        val removal = async { runCatching { repo.removeConnection("c") } }
+        runCurrent()
+        assertFalse(removal.isCompleted)
+        assertEquals("c", vault.rows.single().id)
+        commit.completeExceptionally(IllegalStateException("Write failed"))
+        assertTrue(removal.await().isFailure)
+        assertEquals("c", vault.rows.single().id)
+    }
 
     @Test fun promptBuildEventsAreTransientAndKeepTheRunActive() = runTest {
         val wire = Wire()

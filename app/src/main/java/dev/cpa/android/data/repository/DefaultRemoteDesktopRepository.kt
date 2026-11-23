@@ -19,6 +19,7 @@ class DefaultRemoteDesktopRepository(
     private val composerPreferences: ComposerPreferences = MemoryComposerPreferences(),
     private val recentTunnel: RecentTunnelStore = MemoryRecentTunnelStore(),
     private val tunnelConnections: TunnelConnectionProvider? = null,
+    private val push: dev.cpa.android.core.push.DesktopPushSubscriptions? = null,
     private val transportFactory: (String) -> DesktopTransport = { DirectTransport(it) }
 ) : RemoteDesktopRepository {
     override val skillUsage = RemoteSkillUsage()
@@ -38,6 +39,7 @@ class DefaultRemoteDesktopRepository(
     private val stored = linkedMapOf<String, StoredConnection>()
     private val lifetimes = mutableMapOf<String, Lifetime>()
     private val wanted = mutableSetOf<String>()
+    private val revokingPush = mutableSetOf<String>()
     private var foreground = false
     private val threads = mutableMapOf<Pair<String, String>, ThreadStore>()
     private val _connections = MutableStateFlow<List<ConnectionSummary>>(emptyList())
@@ -103,6 +105,7 @@ class DefaultRemoteDesktopRepository(
         val viewReads = mutableMapOf<String, ViewRead>()
         var job: Job? = null
         var rpc: DesktopRpcClient? = null
+        var pushJob: Job? = null
         val refresh = Mutex()
         val mutations = mutableMapOf<String, Int>()
         val runs = mutableMapOf<String, String>()
@@ -247,7 +250,13 @@ class DefaultRemoteDesktopRepository(
         }
     }
     private suspend fun persistConnection(value: StoredConnection) {
-            storageWrite { vault.upsert(value) }
+            val previous = synchronized(lock) { stored[value.id] }
+            if (previous != null && (previous.mode != value.mode || previous.address != value.address ||
+                    previous.tunnelBaseUrl != value.tunnelBaseUrl || previous.tunnelServerId != value.tunnelServerId)) {
+                writeRevokingPush(listOf(value.id), forget = true) { vault.upsert(value) }
+            } else {
+                storageWrite { vault.upsert(value) }
+            }
             synchronized(lock) {
                 invalidate(value.id)
                 stored[value.id] = value
@@ -282,7 +291,7 @@ class DefaultRemoteDesktopRepository(
     override suspend fun removeConnection(id: String) {
         ready()
         writes.withLock {
-            storageWrite { vault.remove(id) }
+            writeRevokingPush(listOf(id), forget = true) { vault.remove(id) }
             synchronized(lock) {
                 wanted.remove(id); invalidate(id); stored.remove(id)
                 skillUsage.remove(id)
@@ -321,7 +330,10 @@ class DefaultRemoteDesktopRepository(
         writes.withLock {
             val old = synchronized(lock) { stored[id] ?: error("Connection no longer exists") }
             val value = old.copy(enabled = enabled)
-            if (old.enabled != enabled) storageWrite { vault.upsert(value) }
+            if (old.enabled != enabled) {
+                if (enabled) storageWrite { vault.upsert(value) }
+                else writeRevokingPush(listOf(id), forget = false) { vault.upsert(value) }
+            }
             synchronized(lock) {
                 stored[id] = value
                 if (enabled) wanted.add(id) else { wanted.remove(id); invalidate(id); phase(id, ConnectionPhase.Disconnected) }
@@ -348,13 +360,65 @@ class DefaultRemoteDesktopRepository(
         writes.withLock {
             val updated = synchronized(lock) { stored.values.map { it.copy(enabled = false) } }
             if (updated.isEmpty()) return@withLock
-            storageWrite { vault.replaceAll(updated) }
+            writeRevokingPush(updated.map { it.id }, forget = false) { vault.replaceAll(updated) }
             synchronized(lock) {
                 updated.forEach { stored[it.id] = it; wanted.remove(it.id); invalidate(it.id); phase(it.id, ConnectionPhase.Disconnected) }
                 publish()
             }
         }
     }
+    // Fail closed before saving a disabled, removed, or replaced connection. A pending
+    // handshake must not recreate the just-retired route while the vault write is in flight.
+    private suspend fun writeRevokingPush(ids: List<String>, forget: Boolean, write: suspend () -> Unit) {
+        val subscriptions = push ?: return storageWrite(write)
+        withContext(NonCancellable) {
+            synchronized(lock) { revokingPush.addAll(ids) }
+            try {
+                coroutineScope { ids.forEach { launch { detachPush(it) } } }
+                storageWrite(write)
+                if (forget) ids.forEach(subscriptions::forget)
+            } catch (error: Exception) {
+                // The old desktop remains enabled if persistence failed. Redial and reconcile
+                // the pending revocation and replacement binding on a fresh socket.
+                synchronized(lock) {
+                    revokingPush.removeAll(ids.toSet())
+                    ids.forEach { id ->
+                        invalidate(id)
+                        if (foreground && stored[id]?.enabled == true) start(id)
+                    }
+                }
+                throw error
+            } finally {
+                synchronized(lock) { revokingPush.removeAll(ids.toSet()) }
+            }
+        }
+    }
+
+    // Stop registration before unregistering over the same ordered socket. A sleeping desktop
+    // may miss revocation. The next enabled connection always reconciles the stored intent.
+    private suspend fun detachPush(id: String) {
+        val subscriptions = push ?: return
+        val life = synchronized(lock) { lifetimes[id] }
+        life?.pushJob?.cancelAndJoin()
+        subscriptions.persistRetirement(id)
+        if (life == null) return
+        val rpc = life.rpc ?: return
+        try {
+            subscriptions.unregister(id) { method, args -> rpc.call(method, args, timeoutMillis = 2_000) }
+        } catch (_: TimeoutCancellationException) { currentCoroutineContext().ensureActive() }
+        catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { /* Keep revocation pending for a future connection. */ }
+    }
+
+    override suspend fun prepareNotificationTarget(id: String): Boolean {
+        if (!initialized.await()) return false
+        return synchronized(lock) {
+            if (stored[id]?.enabled != true) return@synchronized false
+            if (_connections.value.find { it.id == id }?.phase != ConnectionPhase.AuthenticationRequired) start(id)
+            true
+        }
+    }
+
     override fun onForeground() {
         synchronized(lock) {
             if (foreground) return
@@ -406,6 +470,13 @@ class DefaultRemoteDesktopRepository(
                         }
                         rpc.connect(config.password)
                         synchronized(lock) { if (current(life, rpc)) phase(id, ConnectionPhase.Connected) }
+                        synchronized(lock) {
+                            if (current(life, active) && id !in revokingPush) {
+                                life.pushJob = push?.let { subscriptions -> launch {
+                                    subscriptions.synchronize(id) { method, args -> active.call(method, args, timeoutMillis = 5_000) }
+                                } }
+                            }
+                        }
                         metrics = launch {
                             for (ignored in life.metricSignals) {
                                 try {
@@ -428,6 +499,7 @@ class DefaultRemoteDesktopRepository(
                             if (auth) (if (config.mode == ConnectionMode.Tunnel) RemoteProblem.TunnelCredentials else RemoteProblem.DesktopPassword) else RemoteProblem.DesktopUnavailable) }
                         if (auth || e is IllegalArgumentException || e is ProtocolFailure) break
                     } finally {
+                        life.pushJob?.cancel(); life.pushJob = null
                         metrics?.cancel(); events?.cancel(); rpc?.close()
                         synchronized(lock) {
                             if (current(life, rpc)) {

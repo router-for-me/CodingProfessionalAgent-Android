@@ -132,6 +132,7 @@ interface RemoteDesktopRepository {
     suspend fun stop(connectionId: String, sessionId: String)
     suspend fun searchSessions(connectionId: String, query: String): List<RemoteSearchResult> = throw UnsupportedOperationException()
     suspend fun runAction(connectionId: String, sessionId: String, action: RemoteRunAction): Unit = throw UnsupportedOperationException()
+    suspend fun prepareNotificationTarget(id: String): Boolean = connections.value.any { it.id == id && it.enabled }
     fun onForeground()
     fun onBackground()
 }

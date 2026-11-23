@@ -224,7 +224,8 @@ class RemoteThreadViewModel(private val saved: SavedStateHandle, private val rem
     override fun onCleared() { ask.close() }
     init {
         if (mutable.value.draft.length > 20_000) saved.remove<String>(draftKey)
-        reload()
+        // Reconnect refreshes all observed threads, including a notification opened offline.
+        if (connections.value.any { it.id == connectionId && it.phase == ConnectionPhase.Connected }) reload()
         viewModelScope.launch {
             combine(connections, sessions, projects) { _, _, _ -> Unit }.collect {
                 val session = sessions.value[connectionId].orEmpty().find { it.id == sessionId }

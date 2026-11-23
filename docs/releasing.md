@@ -34,3 +34,5 @@ git tag -a v1.2.3 -m 'Release v1.2.3' main &&
 ```
 
 [Android CI](../.github/workflows/android.yml) 只接受 `v主.次.补丁` 格式的发布标签，且对应提交必须已进入 `main`。检查通过后构建 release APK（`versionName` 取标签去掉 `v`，`versionCode` 取工作流运行序号加一），签名、验签后创建 GitHub Release，附上 ARM32（`CPA-Android-v1.2.3-armeabi-v7a.apk`）、ARM64（`CPA-Android-v1.2.3-arm64-v8a.apk`）、两份最终签名 APK 的哈希清单 `SHA256SUMS.txt` 及自动生成的发布说明。将三个附件下载到同一目录，运行 `shasum -a 256 -c SHA256SUMS.txt`（macOS）或 `sha256sum -c SHA256SUMS.txt`（Linux），两个文件都应显示 `OK`。缺少签名配置不会回退到 debug 签名。若日后更换工作流导致运行序号重置，应确保新 `versionCode` 大于历史发布值。
+
+带任务通知的 APK 需要在标签构建前配置仓库 Actions secret `FIREBASE_ANDROID_CONFIG`，见[任务通知配置](task-notifications.md#构建和发布)。
