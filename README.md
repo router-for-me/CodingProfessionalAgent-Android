@@ -2,7 +2,7 @@
 
 CPA 的原生 Android 客户端。用手机连接 CPA 桌面端，查看项目与会话，随时跟进桌面 Agent 的任务。Agent 仍在桌面端运行。
 
-**[下载 APK](https://github.com/LTbinglingfeng/CodingProfessionalAgent-Android/releases/latest)** · Android 13 及以上
+**[下载 APK](https://github.com/router-for-me/CodingProfessionalAgent-Android/releases/latest)** · Android 13 及以上
 
 ## 快速开始
 
