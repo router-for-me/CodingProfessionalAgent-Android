@@ -92,13 +92,13 @@ class TaskPushController(private val context: Context, private val scope: Corout
 
     fun localConnection(route: String): String? = if (requested.value) bindings.resolve(route) else null
 
-    fun present(data: Map<String, String>) {
+    fun present(data: Map<String, String>, deliveryId: String?) {
         val message = TaskPushMessage.from(data) ?: return
-        bindings.withAuthorizedRoute(message.route) {
+        bindings.deliver(message.route, deliveryId) {
             if (requested.value && !appVisible && manager.areNotificationsEnabled() &&
                 manager.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE) {
                 postTaskNotification(context, message)
-            }
+            } else false
         }
     }
 
@@ -118,6 +118,6 @@ class TaskMessagingService : FirebaseMessagingService() {
         (application as CpaApplication).push.registered(installationId)
     }
     override fun onMessageReceived(message: RemoteMessage) {
-        (application as CpaApplication).push.present(message.data)
+        (application as CpaApplication).push.present(message.data, message.messageId)
     }
 }

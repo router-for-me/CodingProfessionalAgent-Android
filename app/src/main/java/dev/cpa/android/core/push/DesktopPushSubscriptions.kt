@@ -25,6 +25,7 @@ interface PushJournal {
     val clientId: String
     fun authorize(connection: String): String
     fun retire(connection: String)
+    suspend fun persistRetirement(connection: String)
     fun retired(connection: String): Set<String>
     fun cleared(connection: String, route: String)
     fun forget(connection: String)
@@ -83,7 +84,7 @@ class DesktopPushSubscriptions(private val journal: PushJournal) {
         }
     }
 
-    fun retire(connection: String) = journal.retire(connection)
+    suspend fun persistRetirement(connection: String) = journal.persistRetirement(connection)
     fun forget(connection: String) = journal.forget(connection)
 
     suspend fun unregister(connection: String, call: PushRpc) {

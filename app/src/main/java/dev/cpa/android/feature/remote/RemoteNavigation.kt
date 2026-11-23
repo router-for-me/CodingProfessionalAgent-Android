@@ -1,8 +1,6 @@
 package dev.cpa.android.feature.remote
 
 import dev.cpa.android.core.push.TaskNotificationTarget
-import dev.cpa.android.data.repository.ConnectionPhase
-import kotlinx.coroutines.flow.first
 import android.net.Uri
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -55,12 +53,8 @@ fun RemoteNavigation(remote: RemoteDesktopRepository, notification: TaskNotifica
     LaunchedEffect(notification) {
         val target = notification ?: return@LaunchedEffect
         val local = resolveNotification(target.route)
-        if (local != null && remote.prepareNotificationTarget(local)) {
-            val connection = remote.connections.first { rows ->
-                val row = rows.find { it.id == local }
-                row == null || !row.enabled || row.phase !in setOf(ConnectionPhase.Disconnected, ConnectionPhase.Connecting)
-            }.find { it.id == local }
-            if (connection?.enabled == true && resolveNotification(target.route) == local) openThread(local, target.session)
+        if (local != null && remote.prepareNotificationTarget(local) && resolveNotification(target.route) == local) {
+            openThread(local, target.session)
         }
         onConsumed()
     }

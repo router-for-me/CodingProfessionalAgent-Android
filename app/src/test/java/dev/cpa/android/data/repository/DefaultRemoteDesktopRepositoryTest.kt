@@ -91,6 +91,27 @@ class DefaultRemoteDesktopRepositoryTest {
         assertFalse(repo.prepareNotificationTarget("c"))
     }
 
+    @Test fun offlineRemovalRequiresDurablePushRevocation() = runTest {
+        val vault = Vault(listOf(connection()))
+        val memory = DesktopPushSubscriptionsTest.Journal()
+        memory.authorize("c")
+        val commit = CompletableDeferred<Unit>()
+        val journal = object : PushJournal by memory {
+            override suspend fun persistRetirement(connection: String) {
+                memory.retire(connection)
+                commit.await()
+            }
+        }
+        val repo = DefaultRemoteDesktopRepository(vault, backgroundScope, push = DesktopPushSubscriptions(journal))
+        val removal = async { runCatching { repo.removeConnection("c") } }
+        runCurrent()
+        assertFalse(removal.isCompleted)
+        assertEquals("c", vault.rows.single().id)
+        commit.completeExceptionally(IllegalStateException("Write failed"))
+        assertTrue(removal.await().isFailure)
+        assertEquals("c", vault.rows.single().id)
+    }
+
     @Test fun promptBuildEventsAreTransientAndKeepTheRunActive() = runTest {
         val wire = Wire()
         val repo = DefaultRemoteDesktopRepository(Vault(listOf(connection())), backgroundScope) { wire }

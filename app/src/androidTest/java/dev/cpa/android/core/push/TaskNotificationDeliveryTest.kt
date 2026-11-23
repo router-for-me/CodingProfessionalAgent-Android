@@ -14,6 +14,7 @@ import com.google.firebase.messaging.RemoteMessage
 import dev.cpa.android.R
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.UUID
@@ -41,9 +42,9 @@ class TaskNotificationDeliveryTest {
         val session = "shared/session ü"
         val manager = context.getSystemService(NotificationManager::class.java)
         fun items() = manager.activeNotifications.filter { it.notification.group in setOf(notificationGroup(a), notificationGroup(b)) }
-        fun deliver(route: String, type: String) {
+        fun deliver(route: String, type: String, deliveryId: String = UUID.randomUUID().toString()) {
             val remote = RemoteMessage.Builder("test").setData(mapOf("connectionId" to route, "sessionId" to session, "notificationType" to type)).build()
-            push.present(remote.data)
+            push.present(remote.data, deliveryId)
         }
         fun awaitCount(count: Int) {
             val limit = SystemClock.elapsedRealtime() + 3_000L
@@ -78,9 +79,47 @@ class TaskNotificationDeliveryTest {
             assertEquals("desktop-B", push.localConnection(tap.route))
             assertEquals(session, tap.session)
 
+            // A new Ask must alert even while this session's completion is in the tray.
+            deliver(b, "ask", "next-ask")
+            val deadline = SystemClock.elapsedRealtime() + 3_000
+            val askBody = context.getString(R.string.cpa_push_ask_body)
+            fun currentB() = items().single { it.notification.group == notificationGroup(b) }
+            while (currentB().notification.extras.getCharSequence(Notification.EXTRA_TEXT) != askBody &&
+                SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(25)
+            val ask = currentB()
+            assertEquals(askBody, ask.notification.extras.getCharSequence(Notification.EXTRA_TEXT))
+            assertEquals(0, ask.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE)
+            manager.cancel(ask.tag, ask.id)
+            awaitCount(1)
+            deliver(b, "ask", "next-ask")
+            deliver(b, "ask", "another-ask")
+            awaitCount(2)
+
             // Deletion while the old desktop is offline cannot send a remote unregister.
-            push.bindings.retire("desktop-A")
+            runBlocking { push.bindings.persistRetirement("desktop-A") }
+            // Load the on-disk snapshot under a fresh name to bypass Android's process cache.
+            val prefsDir = base.dataDir.resolve("shared_prefs")
+            val freshName = "$namespace-reopened"
+            prefsDir.resolve("$namespace-push_subscriptions.xml").copyTo(prefsDir.resolve("$freshName.xml"))
+            try {
+                val cold = TaskPushController(object : ContextWrapper(context) {
+                    override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
+                        if (name == "push_subscriptions") base.getSharedPreferences(freshName, mode)
+                        else context.getSharedPreferences(name, mode)
+                }, scope)
+                assertNull(cold.localConnection(a))
+                assertEquals("desktop-B", cold.localConnection(b))
+                val current = currentB()
+                manager.cancel(current.tag, current.id)
+                awaitCount(0)
+                cold.bindings.deliver(b, "another-ask") { throw AssertionError("Dismissed delivery was posted again") }
+                cold.present(mapOf("connectionId" to b, "sessionId" to session, "notificationType" to "ask"), "another-ask")
+                cold.present(mapOf("connectionId" to a, "sessionId" to session, "notificationType" to "ask"), "late")
+            } finally {
+                base.deleteSharedPreferences(freshName)
+            }
             deliver(a, "ask")
+            deliver(b, "taskCompleted", "fresh-completion")
             awaitCount(1)
             assertNull(push.localConnection(a))
             assertEquals("desktop-B", push.localConnection(b))

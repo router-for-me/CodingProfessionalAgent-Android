@@ -400,7 +400,7 @@ class DefaultRemoteDesktopRepository(
         val subscriptions = push ?: return
         val life = synchronized(lock) { lifetimes[id] }
         life?.pushJob?.cancelAndJoin()
-        subscriptions.retire(id)
+        subscriptions.persistRetirement(id)
         if (life == null) return
         val rpc = life.rpc ?: return
         try {

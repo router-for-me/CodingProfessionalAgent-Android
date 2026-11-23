@@ -17,6 +17,7 @@ class DesktopPushSubscriptionsTest {
         private val tombstones = mutableSetOf<String>()
         override fun authorize(connection: String): String { ids.add(connection); return "route-$connection" }
         override fun retire(connection: String) { if (ids.remove(connection)) tombstones += connection }
+        override suspend fun persistRetirement(connection: String) = retire(connection)
         override fun retired(connection: String) = if (connection in tombstones) setOf("route-$connection") else emptySet()
         override fun cleared(connection: String, route: String) { tombstones.remove(connection) }
         override fun forget(connection: String) { tombstones.remove(connection) }

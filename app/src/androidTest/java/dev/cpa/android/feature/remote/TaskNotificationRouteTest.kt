@@ -22,19 +22,23 @@ class TaskNotificationRouteTest {
             row("disabled", ConnectionPhase.Disconnected, false))
         val opened = mutableListOf<Pair<String, String>>()
         val repo = object : RemoteDesktopRepository by base {
-            override suspend fun openThread(connectionId: String, sessionId: String) { opened += connectionId to sessionId }
+            override fun observeThread(connectionId: String, sessionId: String): kotlinx.coroutines.flow.StateFlow<RemoteThread> {
+                opened += connectionId to sessionId
+                return base.observeThread(connectionId, sessionId)
+            }
         }
         val pending = mutableStateOf<TaskNotificationTarget?>(target("A"))
         compose.setContent { CpaTheme {
             RemoteNavigation(repo, pending.value, onConsumed = { pending.value = null }, resolveNotification = { it.removePrefix("wire-") })
         } }
-        compose.runOnIdle {
-            assertTrue(opened.isEmpty())
-            base.connections.value = base.connections.value.map { if (it.id == "A") it.copy(phase = ConnectionPhase.Connected) else it }
-        }
-        compose.waitUntil(5_000) { "A" to "same-session" in opened }
+        // The offline desktop opens immediately, without leaving a navigation pending.
+        compose.waitUntil(5_000) { pending.value == null && "A" to "same-session" in opened }
         compose.runOnIdle { pending.value = target("B") }
         compose.waitUntil(5_000) { "B" to "same-session" in opened }
+        compose.runOnIdle {
+            base.connections.value = base.connections.value.map { if (it.id == "A") it.copy(phase = ConnectionPhase.Connected) else it }
+        }
+        compose.runOnIdle { assertEquals("B" to "same-session", opened.last()) }
         compose.runOnIdle { pending.value = target("disabled") }
         compose.waitUntil(5_000) { pending.value == null }
         compose.runOnIdle {

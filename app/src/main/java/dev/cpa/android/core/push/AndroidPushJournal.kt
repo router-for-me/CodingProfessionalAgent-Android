@@ -2,6 +2,9 @@ package dev.cpa.android.core.push
 
 import android.app.NotificationManager
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import java.util.UUID
 
 /** The wire route is a revocable per-desktop binding. A deleted/offline desktop can still
@@ -24,17 +27,31 @@ internal class AndroidPushJournal(context: Context) : PushJournal {
 
     @Synchronized fun resolve(route: String): String? = prefs.getString("local.$route", null)
 
-    @Synchronized fun withAuthorizedRoute(route: String, action: () -> Unit) {
-        if (resolve(route) != null) action()
+    @Synchronized fun deliver(route: String, deliveryId: String?, post: () -> Boolean) {
+        if (resolve(route) == null) return
+        val key = "deliveries.$route"
+        val recent = prefs.getString(key, null)?.let { Json.decodeFromString<List<String>>(it) }.orEmpty()
+        if (deliveryId in recent) return
+        if (post() && deliveryId != null) {
+            // Suppress FCM redelivery even after dismissal. Bound storage per active binding.
+            prefs.edit().putString(key, Json.encodeToString((recent + deliveryId).takeLast(32))).apply()
+        }
     }
 
     @Synchronized override fun retire(connection: String) {
         val route = prefs.getString("route.$connection", null) ?: return
-        prefs.edit().remove("route.$connection").remove("local.$route")
+        prefs.edit().remove("route.$connection").remove("local.$route").remove("deliveries.$route")
             .putStringSet("retired.$connection", retired(connection) + route).apply()
         for (entry in manager.activeNotifications) {
             if (entry.notification.group == notificationGroup(route)) manager.cancel(entry.tag, entry.id)
         }
+    }
+
+    override suspend fun persistRetirement(connection: String) = withContext(Dispatchers.IO) {
+        retire(connection)
+        // A prior opt-out may already have removed this route in memory. commit()
+        // also waits for outstanding apply() writes before the vault can change.
+        check(prefs.edit().commit()) { "Failed to persist notification revocation" }
     }
 
     @Synchronized fun retireAll() {

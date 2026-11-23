@@ -62,8 +62,8 @@ internal fun createTaskChannel(context: Context) {
     context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 }
 
-internal fun postTaskNotification(context: Context, message: TaskPushMessage) {
-    if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+internal fun postTaskNotification(context: Context, message: TaskPushMessage): Boolean {
+    if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
     createTaskChannel(context)
     val intent = message.target.intent(context)
     val tap = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -74,8 +74,8 @@ internal fun postTaskNotification(context: Context, message: TaskPushMessage) {
         .setContentText(context.getString(body))
         .setGroup(notificationGroup(message.route))
         .setContentIntent(tap)
-        .setOnlyAlertOnce(true)
         .setAutoCancel(true)
         .build()
     context.getSystemService(NotificationManager::class.java).notify(intent.dataString, 1, notification)
+    return true
 }
